@@ -1,8 +1,8 @@
-import ffmpeg
 import json
 import redis
 import requests
 import os
+import streamlink
 import subprocess
 import time
 
@@ -25,7 +25,7 @@ token = os.getenv("TOKEN")
 # don't even have that. If we don't specify one of the available formats
 # streamlink will fail. It will also fallback to 'best' or 'source' if nothing
 # else can be found, though those aren't guaranteed to be valid either.
-aliases = ','.join(["720", "720p", "720p60", "720p60_alt", "best", "source"])
+quality = ("720", "720p", "720p60", "720p60_alt", "best", "source")
 
 
 def main():
@@ -39,31 +39,20 @@ def main():
     while True:
         stream_name = db.spop(read_key)
 
-        # Out of streams, wait 5 seconds and check again
         if not stream_name:
-            time.sleep(5)
+            time.sleep(3)
             continue
 
         stream_name = stream_name.decode('utf-8')
-        print(stream_name)
 
         if not stream_name:
             continue
 
-        try:
-            subprocess.run(["streamlink", "--twitch-oauth-token", token,
-                            "-Q", "-f", "-o", "{}.mp4".format(stream_name),
-                            "twitch.tv/{}".format(stream_name), aliases],
-                           check=True, timeout=4)
-        except subprocess.CalledProcessError as e:
-            print(e)
+        stream = get_stream('twitch.tv/{}'.format(stream_name))
+        if not stream:
             continue
-        except subprocess.TimeoutExpired:
-            # This is expected. We're using the timeout in subprocess.run
-            # to only capture 4 seconds of video.
-            pass
 
-        screenshot = take_screenshot(stream_name)
+        screenshot = take_screenshot(stream.url)
         if not screenshot:
             continue
 
@@ -71,24 +60,19 @@ def main():
 
         db.zadd(write_key, value, stream_name)
 
-        os.unlink("{}.mp4".format(stream_name))
 
+def take_screenshot(stream_url):
+    pipe = subprocess.run(['ffmpeg', "-i", stream_url,
+                           "-loglevel", "quiet",
+                           "-an",
+                           "-f", "image2pipe",
+                           "-pix_fmt", "gray",
+                           "-vframes", "1",
+                           "-filter:v", "crop=22:22:1190:20",
+                           "-vcodec", "png", "-"],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-def take_screenshot(stream_name):
-    img = ffmpeg.input('{}.mp4'.format(stream_name))
-    img = ffmpeg.crop(img, 1190, 20, 22, 22)
-    img = ffmpeg.output(img, "pipe:", vframes=1, format="image2",
-                        vcodec="png", pix_fmt="gray")
-    try:
-        img, err = ffmpeg.run(img, capture_stdout=True, quiet=True,
-                              capture_stderr=True)
-    except Exception:
-        return
-
-    if err:
-        print(err)
-
-    return img
+    return pipe.stdout
 
 
 def ocr(file_data):
@@ -97,6 +81,13 @@ def ocr(file_data):
 
     data = json.loads(req.text)
     return data['number']
+
+
+def get_stream(url):
+    streams = streamlink.streams(url)
+    for opt in quality:
+        if opt in streams:
+            return streams[opt]
 
 
 if __name__ == "__main__":

@@ -1,3 +1,2 @@
 streamlink
-ffmpeg-python
 redis
