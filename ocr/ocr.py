@@ -1,6 +1,8 @@
 import io
 import os
 import uuid
+import streamlink
+import subprocess
 
 from sanic import Sanic
 from sanic.response import json
@@ -24,9 +26,11 @@ def load_graph(graph_file):
     return graph
 
 
-app.pubg_graph = load_graph("./pubg.pb")
-app.fortnite_graph = load_graph("./fortnite.pb")
+#app.pubg_graph = load_graph("./pubg.pb")
+#app.fortnite_graph = load_graph("./fortnite.pb")
+app.blackout_graph = load_graph("./blackout.pb")
 app.ocr_debug = os.environ.get("OCR_DEBUG", False)
+quality = ("720p", "720", "720p60", "720p60_alt", "best", "source")
 
 
 @app.route("/info", methods=["GET"])
@@ -63,6 +67,43 @@ async def _process_image(model, image_data):
             filename, number, res[1] * 100))
 
     return number
+
+
+def get_stream(url):
+    streams = streamlink.streams(url)
+
+    for opt in quality:
+        if opt in streams:
+            return streams[opt]
+
+
+@app.route("/process_blackout", methods=["POST"])
+async def process_blackout(request):
+
+    stream_url = "http://twitch.tv/{}".format(request.form.get("stream"))
+    stream = get_stream(stream_url)
+
+    if not stream:
+        return json({"number": 100})
+
+    video_url = stream.url
+
+    pipe = subprocess.run(["ffmpeg", "-i", video_url,
+        "-loglevel", "quiet",
+        "-an",
+        "-f", "image2pipe",
+        "-pix_fmt", "gray",
+        "-vframes", "1",
+        "-filter:v", "crop=26:18:1226:32",
+        "-vcodec", "png", "-"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    image_data = pipe.stdout
+    number = await _process_image(app.blackout_graph, image_data)
+
+    return json({
+        "number": number or 100
+    })
 
 
 @app.route("/process_fortnite", methods=["POST"])

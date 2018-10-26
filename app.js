@@ -12,6 +12,7 @@ const log = new Log("info");
 const FFMpeg = require("fluent-ffmpeg");
 const gm = require("gm").subClass({imageMagick: true});
 const {spawn} = require("child_process");
+const uuidv4 = require("uuid/v4")
 
 // construct express app
 const app = express();
@@ -55,7 +56,7 @@ function listStreams(callback) {
   let clientID = process.env.clientID;
   let whitelist = process.env.ROTISSERIE_WHITELIST;
   let blacklist = process.env.ROTISSERIE_BLACKLIST;
-  let gameURL = "https://api.twitch.tv/kraken/streams?game=PLAYERUNKNOWN'S+BATTLEGROUNDS&language=en&stream_type=live&limit=20";
+  let gameURL = "https://api.twitch.tv/kraken/streams?game=Call%20of%20Duty%3A%20Black%20Ops%204&language=en&stream_type=live&limit=50"
   let options = {
     url: gameURL,
     headers: {
@@ -99,134 +100,6 @@ function listStreams(callback) {
 }
 
 /**
- * Records short clip of each stream gathered in listStreams.
- * @param {object} options - object of other params
- * @param {string} streamName - name of stream to record.
- * @param {string} clipsDir - Relative path to directory containing short
- * recorded clips of each stream in streamsList.
- * @return {promise} - A promise that resolves if a stream is recorded.
- */
-function recordStream(options) {
-  return new Promise((resolve, reject) => {
-    log.info("recording clip of stream: " + options.streamName);
-    const child = spawn("livestreamer", ["--yes-run-as-root", "-Q", "-f",
-      "--twitch-oauth-token", process.env.token,
-      "twitch.tv/" + options.streamName, "720p", "-o",
-      options.clipsDir + options.streamName + ".mp4"]);
-    setTimeout(function() {
-      child.kill("SIGINT");
-      log.info("recorded stream: " + options.streamName);
-      resolve(options);
-    }, 4000);
-  });
-}
-
-/**
- * Takes screenshots of all clips recorded in recordStreams.
- * @param {object} options - object of other params
- * @param {string} streamName - name of stream's clip to screenshot.
- * @param {string} clipsDir - Relative path to directory containing short
- * recorded clips of each stream in streamsList.
- * @param {string} thumbnailsDir - Relative path to directory containing
- * screenshots of each clip recorded in recordStreams.
- * @return {promise} - a promise that resolves if a screenshot is taken.
- */
-function takeScreenshot(options) {
-  return new Promise((resolve, reject) => {
-    if (fs.existsSync(options.clipsDir + options.streamName + ".mp4")) {
-      log.info("taking screenshot of stream: " + options.streamName);
-      new FFMpeg(options.clipsDir + options.streamName + ".mp4")
-        .takeScreenshots({
-          timestamps: [0],
-          folder: options.thumbnailsDir,
-          filename: options.streamName + ".png",
-        })
-        .on("end", function() {
-          resolve(options);
-        })
-        .on("error", function(err) {
-          fs.unlinkSync(options.clipsDir + options.streamName + ".mp4");
-          log.info("Deleted " + options.clipsDir
-                        + options.streamName + ".mp4");
-          reject(new Error("An error occurred: " + err.message));
-        });
-    } else {
-      reject(new Error("File " + options.clipsDir
-        + options.streamName + ".mp4 not found."));
-    }
-  });
-}
-
-/**
- * Crops all screenshots taken in takeScreenshot to just the area containing
- * the number of players alive in-game.
- * @param {object} options - object of other params
- * @param {string} streamName - name of stream's screenshot to crop.
- * @param {string} thumbnailsDir - Relative path to directory containing
- * screenshots of each clip recorded in recordStream.
- * @param {string} cropsDir - Relative path to directory containing cropped
- * versions of all screenshots taken in takeScreenshot.
- * @return {promise} - a promise which resolves if a screenshot is cropped.
- */
-function cropScreenshot(options) {
-  return new Promise((resolve, reject) => {
-    log.info("cropping screenshot of stream: " + options.streamName);
-    if (fs.existsSync(options.thumbnailsDir + options.streamName + ".png")) {
-      gm(options.thumbnailsDir + options.streamName + ".png")
-        .crop(22, 22, 1190, 20)
-        .type("Grayscale")
-        .write(options.cropsDir + options.streamName + ".png", function(err) {
-          resolve(options);
-          if (err) reject(err);
-        });
-      log.info("cropped screenshot of: " + options.streamName);
-    } else {
-      reject(new Error(options.streamName + ": input file not found"));
-    }
-  });
-}
-
-
-/**
- * OCR the data (via web request)
- * Uses the rotisserie-ocr microservice
- * @param {object} options - object of other params
- * @return {promise} - a promise that is resolved if the a screenshot is ocr'd
- * successfully.
- */
-function ocrCroppedShot(options) {
-  return new Promise((resolve, reject) => {
-    let formData = {
-      image: fs.createReadStream(__dirname
-                                 + options.cropsDir.replace(".", "")
-                                 + options.streamName + ".png"),
-    };
-
-    // k8s injects the following variables
-    // ROTISSERIE_OCR_SERVICE_HOST=10.10.10.65
-    // ROTISSERIE_OCR_SERVICE_PORT=3001
-
-    let requestOptions = {
-      url: "http://" + process.env.ROTISSERIE_OCR_SERVICE_HOST + ":" + process.env.ROTISSERIE_OCR_SERVICE_PORT + "/process_pubg",
-      formData: formData,
-    };
-
-    request.post(requestOptions, function(err, httpResponse, body) {
-      if (err) {
-        console.error("upload failed");
-        reject(err);
-      } else {
-        let parsed = JSON.parse(body);
-        let object = {};
-        object.name = options.streamName;
-        object.alive = parsed.number;
-        resolve(object);
-      }
-    });
-  });
-}
-
-/**
  * Runner for listing streams and firing up a worker for each of those streams
  * to handle the stream processing.
  * @param {string} cropsDir - path to directory containing cropped thumbnails
@@ -241,24 +114,28 @@ function updateStreamsList(cropsDir) {
     let newAllStreams = [];
     for (let stream in streamsList) {
       let streamName = streamsList[stream];
-      const data = {
-        streamName: streamName,
-        clipsDir: "./streams/clips/",
-        thumbnailsDir: "./streams/thumbnails/",
-        cropsDir: "./streams/crops/",
+      let formData = {
+        'stream': streamName
+      }
+
+      let requestOptions = {
+        url: "http://" + process.env.ROTISSERIE_OCR_SERVICE_HOST + ":" + process.env.ROTISSERIE_OCR_SERVICE_PORT + "/process_blackout",
+        formData: formData,
       };
 
-      recordStream(data)
-        .then(takeScreenshot)
-        .then(cropScreenshot)
-        .then(ocrCroppedShot)
-        .then(function(streamobj) {
-          log.info(streamobj.name + " = " + streamobj.alive + " alive.");
-          array.push(streamobj);
-        }).catch((error) => {
-          log.error(error.message);
-        });
+      request.post(requestOptions, function(err, httpResponse, body) {
+        if (err) {
+          log.error("upload failed");
+        } else {
+          let parsed = JSON.parse(body);
+          let object = {};
+          object.name = streamName;
+          object.alive = parsed.number;
+          array.push(object);
+        }
+      });
     }
+
     setTimeout(function() {
       array.sort(function(a, b) {
         return a.alive - b.alive;
