@@ -1,3 +1,4 @@
 tensorflow==1.7.0
+streamlink
 sanic==0.7.0
 Pillow==5.1.0
