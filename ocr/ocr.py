@@ -127,10 +127,14 @@ async def process_blackout(request):
     crop_dims = (0, 0, 1280, 720)
 
     image_data = get_stream_image(stream, crop_dims)
+    if not image_data:
+        return json({
+            "number": 100,
+            "prob": 0
+        })
 
     crop_width = 26
     crop_height = 18
-    print(type(image_data))
     img = Image.open(io.BytesIO(image_data))
     cropped_img = img.crop((1226, 32, 1226 + crop_width, 32 + crop_height))
     output_img = io.BytesIO()
