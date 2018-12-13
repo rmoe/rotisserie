@@ -17,7 +17,7 @@ var currentStreamName = "";
 function updateIframe() {
   var pin = document.getElementById("buttonPin").value;
   if (pin === "on") {
-    //return;
+    return;
   }
   getJSON();
 }
