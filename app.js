@@ -235,7 +235,7 @@ function main() {
   });
 
 
-  app.use(express.static("public"));
+  app.use('/static', express.static("public"));
 
   // start http server and log success
   app.listen(3000, function() {
