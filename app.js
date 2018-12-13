@@ -20,7 +20,7 @@ let defaultGame = 'fortnite';
 let supportedGames = {
   'fortnite': 'Fortnite',
   'pubg': "PLAYERUNKNOWN'S BATTLEGROUNDS",
-  'blackout': 'Call of Duty%3A Black Ops 4'
+  'blackout': 'Call%20of%20Duty%3A%20Black%20Ops%204'
 };
 
 // setup global list
@@ -121,7 +121,7 @@ function updateStreamsList(game, cropsDir) {
   // get list of twitch streams and record each one
   listStreams(game, function(response) {
     let streamsList = response;
-    log.info(streamsList.length);
+    log.info("Got " + streamsList.length + " streams for " + game);
     let array = [];
     let newAllStreams = [];
     for (let stream in streamsList) {
