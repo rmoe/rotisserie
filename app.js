@@ -68,7 +68,7 @@ function listStreams(game, callback) {
   let clientID = process.env.clientID;
   let whitelist = process.env.ROTISSERIE_WHITELIST;
   let blacklist = process.env.ROTISSERIE_BLACKLIST;
-  let gameURL = "https://api.twitch.tv/kraken/streams?game=" + game + "&language=en&stream_type=live&limit=50";
+  let gameURL = "https://api.twitch.tv/kraken/streams?game=" + supportedGames[game] + "&language=en&stream_type=live&limit=50";
   let options = {
     url: gameURL,
     headers: {
