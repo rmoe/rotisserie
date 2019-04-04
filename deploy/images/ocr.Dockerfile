@@ -11,6 +11,4 @@ RUN apt-get update && \
     apt-get -y purge gcc && \
     apt-get -y autoremove
 
-EXPOSE 3001
-
 CMD ["python", "ocr.py"]
