@@ -4,10 +4,12 @@ import uuid
 import streamlink
 import asyncio
 import tensorflow as tf
+import numpy as np
 
 from sanic import Sanic
 from sanic.response import json
 from PIL import Image
+from PIL import ImageDraw
 
 app = Sanic()
 app.config.KEEP_ALIVE = False
@@ -30,6 +32,7 @@ def load_graph(graph_file):
     return graph
 
 
+app.cutoff = 0.9
 app.pubg_graph = load_graph("./pubg.pb")
 app.fortnite_graph = load_graph("./fortnite.pb")
 app.blackout_graph = load_graph("./blackout.pb")
@@ -78,6 +81,9 @@ async def _process_image(model, image_data):
 
         print("Identified image {} as {} with {:5.2f}% probability.".format(
             filename, number, res[1] * 100))
+
+    if res[1] < app.cutoff:
+        number = 100
 
     return number
 
@@ -147,7 +153,7 @@ async def process_fortnite(request):
 @app.route("/process_pubg", methods=["POST"])
 async def process_pubg(request):
     stream_name = request.form.get("stream")
-    crop_dims = (1191, 22, 23, 21)
+    crop_dims = (1192, 22, 23, 21)
     image_data = await get_stream_image(stream_name, crop_dims)
 
     if not image_data:
